@@ -9,12 +9,14 @@ My 8-bit breadboard CPU is a project inspired by Ben Eater's [eponymous series](
 
 ## Motivation and focus of this project
 
-My primary motivation for this project was to bridge the gap in my knowledge between basic electronics (*e.g.*, current, resistance, voltage, and so on) and abstract user-space (*e.g.*, a word processor or web browser). To distill this into one question:
+My primary motivation for this project was to bridge the gap in my knowledge between basic electronics (*e.g.*, current, resistance, voltage, and so on) and abstract user-space (*e.g.*, a word processor or web browser). To distill this into one sentiment:
 
-> **Between pressing the power button and seeing a login screen, what is actually going on?**
+> **Between pressing the power button and seeing a login screen, what is actually going on? How does my PC "know" what to do?**
 
 Throughout this site, I will refer to Ben Eater's design as the **SAP-1** and Fadil-1's design as the **F8-BB**.
 
 ## Modules
+
+### [Clock](/posts/clock)
 
 ### [ROM programmer](/posts/rom-programmer)

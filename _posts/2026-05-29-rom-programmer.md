@@ -13,7 +13,9 @@ The SAP-1 uses an electronically erasable programmable ROM (EEPROM) for this pur
 
 ## Making life easier with the Arduino Mega
 
+Ben Eater and Fadil-1 both used the Arduino Nano for their EPROM programmers. The Nano is inexpensive, compact, and fits onto a standard breadboard. However, it only has 14 digital I/O pins, which is not enough to wire all of the EPROM address lines and control signals in parallel. To circumvent this problem, they use shift registers to transmit the memory address serially. While creative, I found this solution unwieldy, as it requires an entire breadboard's worth of circuitry just to set up the EPROM address lines.
 
+Instead of the Arduino Nano, I opted for the Arduino Mega 2560, which has a whopping 54 digital I/O pins! For ~$5 more than the Nano, the Mega was well worth it. I could then directly connect the control signals and all 19 address lines to the SST39SF040 with jumper wires.
 
 ## Handling software data protection
 
@@ -119,3 +121,94 @@ void erase_FLASH() {
 ## Serial protocol for transmitting data
 
 The second and bigger hurdle to overcome was simply *getting the data onto the Arduino*. Since the Arduino Mega has 256 KB of flash memory, it cannot store the 4 MB ROM image all at once. I was interested in solving this problem without an SD card interface or dedicated EPROM programmer device, so I decided to develop a method to send serial data to the Arduino.
+
+A simplified flowchart for the serial design is shown below.  *Note: only two processes can use the serial port at once, so functions like the serial monitor (in the Arduino IDE) cannot run simultaneously with this program.*
+
+### Figure 3. Flowchart of serial communication between Python script and Arduino
+
+![a flowchart](/assets/images/serial-diagram.png)
+
+The Arduino outer loop ends when it reaches the end of the flash address space *or* when a "finished" signal is received from the Python script. This allows for programming of the entire chip or only some sectors.
+
+```c++
+void serial_program() {
+
+  long address = 0;
+  bool done = false;
+
+  while (address < FLASH_SIZE - BUFFER_SIZE && !done) {
+    Serial.write('K'); // Send acknowledgement to serial bus
+
+    // Wait for response from Python script
+    while (!Serial.available());
+    byte cmd = Serial.read();
+    done = (cmd == 'F'); // Break out of loop if receive 'Finished' signal
+    
+    if (cmd == 'P') { // 'Program' signal
+      byte page[BUFFER_SIZE]; // Initialize data buffer
+    
+      // Read packet from serial bus
+      size_t received = Serial.readBytes(page, BUFFER_SIZE);
+
+      // If packet was lost, try to receive it again
+      if (received != BUFFER_SIZE) {
+        Serial.write('E');
+        continue;
+      }
+
+      // Write packet to flash and send success acknowledgement to serial bus
+      write_FLASH(page, BUFFER_SIZE, address);
+      address += BUFFER_SIZE;
+      Serial.write('D');
+    }
+  }
+}
+```
+
+After opening up serial communication, the Python script waits for 5 seconds to allow the Arduino program time to initialize. This allows me to follow these steps in practice:
+
+1. Load the Arduino program onto the Arduino using the Arduino IDE.
+2. Execute the Python script in the terminal.
+3. During the 5-second "sleep" period, manually press the Arduino's **reset** key to execute its program.
+
+Finally, the Python script will raise an exception if it receives a response other than `D` or `E` from the Arduino, halting the program if the serial timing loses synchronization.
+
+```python
+def serial_program():
+    """ Send binary data from file to Arduino through USB port """
+
+    # Open binary file with ROM image
+    with open(FILE_NAME, 'rb') as f:
+        data = f.read()
+
+    print("Uploading %d bytes at %d Ki/s in %d-byte packets..." %(len(data), BAUD/1000, BUFFER_SIZE))
+
+    # Initialize serial connection and wait for Arduino to initialize
+    ser = serial.Serial(PORT, BAUD, timeout=1)
+    time.sleep(5)
+
+    # Loop through ROM image
+    base = 0;
+    while base < len(data) - BUFFER_SIZE:
+        page = data[base:base + BUFFER_SIZE] # Get next page from ROM image
+
+        # Wait to send packet until Arduino acknowledges
+        while (ser.read() != b'K'): continue
+
+        ser.write(b'P') # 'Program' signal to Arduino
+        ser.write(page) # Write data to serial bus
+
+        # Check for response from Arduino
+        result = ser.read(1)
+
+        if result == b'D': # Successful program cycle
+            base += BUFFER_SIZE
+        elif result == b'E': # Packet size mismatch; resend data
+            continue
+        else: # Other error
+            raise RuntimeError("Programming failed")
+
+    ser.write(b'F') # 'Finished' signal to Arduino
+    ser.close()
+    print("done.")
+```
